@@ -1,0 +1,58 @@
+name: HabibOil Daily AI Poster
+
+on:
+  schedule:
+    - cron: '0 5 * * *' # Runs at 10:00 AM PKT every day
+  workflow_dispatch:
+    inputs:
+      custom_theme:
+        description: 'Optional custom scene/topic for today (leave blank for auto)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  generate-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Generate AI Bottle Scene & Publish to Facebook
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+          CUSTOM_THEME: ${{ github.event.inputs.custom_theme }}
+        run: python main.py
+
+      - name: Commit Generated Image to Repo (Creates Public URL for GBP)
+        run: |
+          git config user.name "HabibOil AI Bot"
+          git config user.email "bot@habiboil.store"
+          git add generated/
+          git commit -m "Auto-generated HabibOil post for $(date -I)" || echo "No changes"
+          git push
+
+      - name: Send Policy-Safe Urdu Post + Image URL to Google Business Profile
+        env:
+          GBP_WEBHOOK_URL: ${{ secrets.GBP_WEBHOOK_URL }}
+        run: |
+          TODAY=$(date -I)
+          RAW_IMG_URL="https://raw.githubusercontent.com/${{ github.repository }}/main/generated/habiboil_${TODAY}.png"
+          CAPTION=$(cat generated/gbp_caption.txt)
+          if [ -n "$GBP_WEBHOOK_URL" ]; then
+            curl -X POST "$GBP_WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --arg img "$RAW_IMG_URL" --arg cap "$CAPTION" '{image_url: $img, summary: $cap, action_type: "CALL"}')"
+          fi
