@@ -5,19 +5,42 @@ import random
 import datetime
 import requests
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageOps
 from google import genai
 from google.genai import types
 
 def strip_phone_and_urls_for_gbp(text: str) -> str:
-    """
-    Strictly removes any accidental phone numbers or URLs from the Google Business Profile
-    summary text so Google's automated spam filter never rejects the post.
-    """
+    """Strictly removes phone numbers and URLs for Google Business Profile compliance."""
     text = re.sub(r'https?://\S+|www\.\S+|habiboil\.store', '', text, flags=re.IGNORECASE)
     text = re.sub(r'(?:\+92|0092|0)?\s*3\d{2}[\s\-]?\d{7}', '', text)
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
+
+def apply_logo_watermark(image_path: Path, logo_dir: Path):
+    """Overlays the brand logo from assets/logo/ onto the top corner of the generated image."""
+    logo_files = [p for p in logo_dir.glob("*") if p.suffix.lower() in {".png", ".jpg", ".jpeg"}]
+    if not logo_files:
+        print("No logo found in assets/logo/. Skipping watermark.")
+        return
+    
+    try:
+        base_img = Image.open(image_path).convert("RGBA")
+        logo_img = Image.open(logo_files[0]).convert("RGBA")
+        
+        base_w, base_h = base_img.size
+        logo_w = int(base_w * 0.18)
+        aspect = logo_img.height / logo_img.width
+        logo_h = int(logo_w * aspect)
+        logo_img = logo_img.resize((logo_w, logo_h), Image.Resampling.LANCZOS)
+        
+        padding = int(base_w * 0.04)
+        position = (base_w - logo_w - padding, padding)
+        
+        base_img.paste(logo_img, position, logo_img)
+        base_img.convert("RGB").save(image_path, "PNG")
+        print(f"Successfully applied logo watermark from {logo_files[0].name}")
+    except Exception as e:
+        print(f"Failed to apply logo watermark: {e}")
 
 def main():
     api_key = os.environ.get("GEMINI_API_KEY")
@@ -27,22 +50,25 @@ def main():
     client = genai.Client(api_key=api_key)
 
     bottle_dir = Path("assets/bottles")
-    bottle_files = [
-        p for p in bottle_dir.glob("*")
-        if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
-    ]
+    influencer_dir = Path("assets/influenser")
+    logo_dir = Path("assets/logo")
+
+    bottle_files = [p for p in bottle_dir.glob("*") if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}]
+    influencer_files = [p for p in influencer_dir.glob("*") if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}]
+
     if not bottle_files:
-        raise FileNotFoundError("No bottle images found in assets/bottles/. Please upload at least one photo.")
+        raise FileNotFoundError("No bottle images found in assets/bottles/.")
 
-    custom_bottle = os.environ.get("CUSTOM_BOTTLE_FILENAME", "").strip()
-    if custom_bottle and (bottle_dir / custom_bottle).exists():
-        chosen_bottle_path = bottle_dir / custom_bottle
-    else:
-        real_bottles = [p for p in bottle_files if p.name != "sample_habiboil_bottle.png"]
-        chosen_bottle_path = random.choice(real_bottles) if real_bottles else bottle_files[0]
+    chosen_bottle = random.choice([p for p in bottle_files if p.name != "sample_habiboil_bottle.png"] or bottle_files)
+    print(f"Using bottle reference: {chosen_bottle}")
+    contents = [Image.open(chosen_bottle)]
 
-    print(f"Using bottle reference image: {chosen_bottle_path}")
-    bottle_img = Image.open(chosen_bottle_path)
+    influencer_prompt_part = ""
+    if influencer_files:
+        chosen_influencer = random.choice(influencer_files)
+        print(f"Using influencer reference: {chosen_influencer}")
+        contents.append(Image.open(chosen_influencer))
+        influencer_prompt_part = "Include the person from the second reference image naturally holding or presenting the HabibOil bottle. "
 
     THEMES = [
         "Heart health & cholesterol control benefits of cooking with pure Kachi Ghani mustard oil on a traditional KPK kitchen counter",
@@ -60,61 +86,90 @@ def main():
     today_str = datetime.date.today().isoformat()
     os.makedirs("generated", exist_ok=True)
     output_img_path = Path(f"generated/habiboil_{today_str}.png")
+    story_img_path = Path(f"generated/habiboil_story_{today_str}.png")
 
     image_prompt = (
         f"Keep the exact HabibOil bottle and label from the reference image completely intact, legible, and sharp. "
-        f"Place this exact bottle naturally into a professional commercial product photography scene: {today_theme}. "
+        f"{influencer_prompt_part}"
+        f"Place this naturally into a professional commercial product photography scene: {today_theme}. "
         f"Photorealistic, 8k resolution, warm natural lighting, shallow depth of field, high-end food marketing aesthetic."
     )
 
     try:
-        print("Generating custom product scene with gemini-2.5-flash-image...")
+        print("Generating standard feed image with gemini-2.5-flash-image...")
         img_response = client.models.generate_content(
             model="gemini-2.5-flash-image",
-            contents=[bottle_img, image_prompt],
-            config=types.GenerateContentConfig(
-                response_modalities=["IMAGE"]
-            )
+            contents=contents + [image_prompt],
+            config=types.GenerateContentConfig(response_modalities=["IMAGE"])
         )
-        saved_image = False
+        saved = False
         for part in img_response.candidates[0].content.parts:
             if part.inline_data:
                 with open(output_img_path, "wb") as f:
                     f.write(part.inline_data.data)
-                saved_image = True
-                print(f"Saved generated image to {output_img_path}")
+                saved = True
                 break
-        if not saved_image:
-            raise RuntimeError("No inline image returned by model.")
+        if not saved:
+            Image.open(chosen_bottle).save(output_img_path)
     except Exception as e:
-        print(f"Image generation fallback triggered ({e}). Copying original bottle image for today's post.")
-        bottle_img.save(output_img_path)
+        print(f"Feed image generation fallback: {e}")
+        Image.open(chosen_bottle).save(output_img_path)
+
+    apply_logo_watermark(output_img_path, logo_dir)
+
+    story_prompt = (
+        f"Create a vertical 9:16 Instagram/Facebook Story promotional banner for 'HabibOil'. "
+        f"Show the exact HabibOil bottle prominently in the center with background theme: {today_theme}. "
+        f"Leave clean vertical space at the top and bottom for overlay text, vibrant high-converting social media aesthetic."
+    )
+    try:
+        print("Generating vertical Story image with gemini-2.5-flash-image...")
+        story_response = client.models.generate_content(
+            model="gemini-2.5-flash-image",
+            contents=contents + [story_prompt],
+            config=types.GenerateContentConfig(response_modalities=["IMAGE"])
+        )
+        saved_story = False
+        for part in story_response.candidates[0].content.parts:
+            if part.inline_data:
+                with open(story_img_path, "wb") as f:
+                    f.write(part.inline_data.data)
+                saved_story = True
+                break
+        if not saved_story:
+            Image.open(output_img_path).save(story_img_path)
+    except Exception as e:
+        print(f"Story image generation fallback: {e}")
+        Image.open(output_img_path).save(story_img_path)
+
+    apply_logo_watermark(story_img_path, logo_dir)
 
     caption_prompt = f"""
 You are the expert Urdu SEO Social Media Manager for 'HabibOil' (located at Jamia Masjid Ada, Rustam, Mardan, KPK, Pakistan).
-Write a daily promotional post based on today's theme: "{today_theme}".
+Write promotional content based on theme: "{today_theme}".
 
 Naturally weave in high-ranking local SEO keywords:
 خالص سرسوں کا تیل, Kachi Ghani Mustard Oil, HabibOil Rustam Mardan, Pure Cooking Oil, Sarson Ka Tail.
 
-Output EXACTLY two sections separated by ===SPLIT===:
+Output EXACTLY three sections separated by ===SPLIT===:
 
-[Section 1: Facebook Page Caption]
-- Engaging, persuasive Urdu copy with emojis and bullet points
-- Include full contact details:
-  📞 Call: 0334-6328047
-  💬 WhatsApp: 0304-8907756
-  🌐 Website: https://habiboil.store
-  📍 Address: Jamia Masjid Ada, Rustam, Mardan
-- 8 relevant Urdu and English SEO hashtags
+[Section 1: Facebook/Instagram Feed Caption]
+- Engaging Urdu copy with emojis and bullet points
+- Contact details: Call 0334-6328047, WhatsApp 0304-8907756, Website https://habiboil.store, Address Rustam Mardan
+- 8 SEO hashtags
 
 ===SPLIT===
 
 [Section 2: Google Business Profile Summary]
-- Engaging Urdu SEO copy with emojis (100 to 180 words)
-- STRICT GOOGLE POLICY RULE: DO NOT include ANY phone numbers, WhatsApp numbers, or website URLs anywhere in this section (Google automatically rejects posts with phone numbers in the text).
-- Instead, invite the customer to click the 'Call Now' or 'Order Online' button below.
+- Engaging Urdu SEO copy (100 to 180 words)
+- STRICT POLICY RULE: DO NOT include ANY phone numbers, WhatsApp numbers, or URLs in this section.
 - 5 SEO hashtags
+
+===SPLIT===
+
+[Section 3: Story Text Overlay / Sticker Caption]
+- Short, punchy Urdu text optimized for a quick Story view (e.g. "خالص سرسوں کا تیل - آج ہی آرڈر کریں! 🌿")
+- Call to action sticker text and 3 short hashtags
 """
 
     print("Generating Urdu SEO captions with gemini-2.5-flash...")
@@ -124,8 +179,9 @@ Output EXACTLY two sections separated by ===SPLIT===:
     )
     raw_text = text_response.text or ""
     parts = raw_text.split("===SPLIT===")
-    fb_caption = parts[0].replace("[Section 1: Facebook Page Caption]", "").strip()
+    fb_caption = parts[0].replace("[Section 1: Facebook/Instagram Feed Caption]", "").strip()
     gbp_caption_raw = parts[1].replace("[Section 2: Google Business Profile Summary]", "").strip() if len(parts) > 1 else fb_caption
+    story_caption = parts[2].replace("[Section 3: Story Text Overlay / Sticker Caption]", "").strip() if len(parts) > 2 else "خالص سرسوں کا تیل - HabibOil"
 
     gbp_caption = strip_phone_and_urls_for_gbp(gbp_caption_raw)
 
@@ -133,32 +189,25 @@ Output EXACTLY two sections separated by ===SPLIT===:
         f.write(fb_caption)
     with open("generated/gbp_caption.txt", "w", encoding="utf-8") as f:
         f.write(gbp_caption)
-
-    metadata = {
-        "date": today_str,
-        "theme": today_theme,
-        "source_bottle": str(chosen_bottle_path),
-        "generated_image": str(output_img_path)
-    }
-    with open("generated/latest_metadata.json", "w", encoding="utf-8") as f:
-        json.dump(metadata, f, ensure_ascii=False, indent=2)
+    with open("generated/story_caption.txt", "w", encoding="utf-8") as f:
+        f.write(story_caption)
 
     fb_page_id = os.environ.get("FB_PAGE_ID", "").strip()
     fb_token = os.environ.get("FB_PAGE_ACCESS_TOKEN", "").strip()
     if fb_page_id and fb_token:
-        print(f"Publishing photo & Urdu caption to Facebook Page ({fb_page_id})...")
+        print(f"Publishing feed post to Facebook Page ({fb_page_id})...")
         fb_url = f"https://graph.facebook.com/v21.0/{fb_page_id}/photos"
         with open(output_img_path, "rb") as img_file:
-            fb_res = requests.post(
-                fb_url,
-                data={"caption": fb_caption, "access_token": fb_token},
-                files={"source": img_file},
-                timeout=60
-            )
-        print("Facebook API Status:", fb_res.status_code, fb_res.text)
-        fb_res.raise_for_status()
+            res = requests.post(fb_url, data={"caption": fb_caption, "access_token": fb_token}, files={"source": img_file}, timeout=60)
+        print("Facebook Feed API Status:", res.status_code, res.text)
+
+        print("Publishing Story to Facebook Page...")
+        story_url = f"https://graph.facebook.com/v21.0/{fb_page_id}/photo_stories"
+        with open(story_img_path, "rb") as story_file:
+            story_res = requests.post(story_url, data={"access_token": fb_token}, files={"source": story_file}, timeout=60)
+        print("Facebook Story API Status:", story_res.status_code, story_res.text)
     else:
-        print("Skipping Facebook publish (FB_PAGE_ID or FB_PAGE_ACCESS_TOKEN not set).")
+        print("Skipping Facebook publishing (Credentials not set).")
 
 if __name__ == "__main__":
     main()
