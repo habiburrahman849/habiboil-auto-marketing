@@ -212,7 +212,7 @@ def main():
     try:
         print("Generating Feed Image with gemini-2.5-flash-image...")
         img_response = client.models.generate_content(
-            model="gemini-2.5-flash-image",
+           model="gemini-2.0-flash",
             contents=contents + [image_prompt],
             config=types.GenerateContentConfig(response_modalities=["IMAGE"])
         )
@@ -301,7 +301,7 @@ Output EXACTLY FOUR sections separated by ===SPLIT===:
 
     print("Generating Urdu SEO Captions & First Comment with gemini-2.5-flash...")
     text_response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-2.0-flash",
         contents=caption_prompt
     )
     raw_text = text_response.text or ""
