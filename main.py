@@ -343,14 +343,17 @@ Output EXACTLY FOUR sections separated by ===SPLIT===:
     fb_page_id = os.environ.get("FB_PAGE_ID", "61578353751886").strip()
     fb_token = os.environ.get("FB_PAGE_ACCESS_TOKEN", "").strip()
     if fb_page_id and fb_token:
-        publish_to_facebook_with_first_comment(
-            page_id=fb_page_id,
-            raw_token=fb_token,
-            feed_image_path=output_img_path,
-            story_image_path=story_img_path,
-            feed_caption=fb_caption,
-            first_comment_text=first_comment
-        )
+        try:
+            publish_to_facebook_with_first_comment(
+                page_id=fb_page_id,
+                raw_token=fb_token,
+                feed_image_path=output_img_path,
+                story_image_path=story_img_path,
+                feed_caption=fb_caption,
+                first_comment_text=first_comment
+            )
+        except requests.RequestException as e:
+            print(f"Facebook publish warning: {e}. Continuing with generated artifacts only.")
     else:
         print("Skipping live Facebook publish (FB_PAGE_ACCESS_TOKEN not set).")
 
