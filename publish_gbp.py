@@ -60,10 +60,13 @@ def main():
     branch = os.environ.get("GITHUB_REF_NAME", "main")
     raw_img_url = f"https://raw.githubusercontent.com/{repo}/{branch}/generated/habiboil_{today_str}.png"
 
-    with open("generated/gbp_caption.txt", "r", encoding="utf-8") as f:
-        summary = f.read().strip()
+    caption_file = "generated/gbp_caption.txt"
+    if not os.path.exists(caption_file):
+        print("No GBP caption file found. Skipping.")
+        return
 
-    print(f"Public Image URL for GBP: {raw_img_url}")
+    with open(caption_file, "r", encoding="utf-8") as f:
+        summary = f.read().strip()
 
     webhook_url = os.environ.get("GBP_WEBHOOK_URL", "").strip()
     if webhook_url:
@@ -82,7 +85,7 @@ def main():
             account_id, location_id, raw_img_url, summary
         )
     else:
-        print("Notice: Neither GBP_WEBHOOK_URL nor GBP OAuth credentials were set. Caption and image are saved in generated/.")
+        print("GBP skipped (optional GBP secrets not configured yet). Facebook post + First Comment completed!")
 
 if __name__ == "__main__":
     main()
