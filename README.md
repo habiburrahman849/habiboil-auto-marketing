@@ -9,7 +9,7 @@ Complete GitHub Actions automation for **HabibOil** (Jamia Masjid Ada, Rustam, M
    - Stamps `assets/logo/logo bes.png` onto the top-right corner of every generated Feed and Story image.
 3. **Pro Facebook Reach Optimization (Caption + Automatic First Comment Manager):**
    - **Main Post Caption:** High-converting Urdu SEO copy without external links (so Facebook's algorithm gives you maximum organic reach) and a callout pointing to the First Comment.
-   - **Automatic First Comment:** Immediately after publishing the photo, the bot comments on its own post with your clickable ordering link (`https://habiboil.store`), WhatsApp link (`https://wa.me/923048907756`), phone number (`0334-6328047`), and available bottle sizes.
+   - **Automatic First Comment:** Immediately after publishing the photo, the bot comments on its own post with your clickable ordering link WhatsApp link (`https://wa.me/923048907756`), phone number , and available bottle sizes.
 4. **Automatic Facebook Page Story Uploader:**
    - Generates a vertical 9:16 Story banner and publishes it to `/photo_stories`.
 
